@@ -16,6 +16,10 @@ public class Conveyor : MonoBehaviour
     public bool includeEndpoints = true;
     public bool isLooped = true;
 
+    [Header("Thread Guide")]
+    public Transform Guide;
+    public YarnMoveAnimation yarnMoveLine;
+
     private void Start()
     {
         StartCoroutine(SpawnMovingSlots());
@@ -135,5 +139,18 @@ public class Conveyor : MonoBehaviour
     public int FilledMovingSlotCount()
     {
         return _slots.Count(slot => slot.IsEmpty() == false);
+    }
+
+    public void PlayMoveLine(Plate plate)
+    {
+        Vector3 start = plate.Out.position;
+        Vector3 end = Guide.position;
+
+        yarnMoveLine.PlayYarnMove(start, end, 0.25f, plate.Color);
+    }
+
+    public void StopMoveLine()
+    {
+        yarnMoveLine.StopYarnMove(0.25f);
     }
 }

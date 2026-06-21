@@ -10,6 +10,8 @@ public class GameManager : MonoBehaviour
     [SerializeField] private float clickCooldownDuration = 0.5f;
     [SerializeField] private Unloader unloader;
 
+    public Conveyor conveyor;
+
     private float lastCharacterClickTime = -999f;
     private int blockCharacterClick; // if > 0 => block input
     private bool blockInputTrigger;
@@ -127,49 +129,20 @@ public class GameManager : MonoBehaviour
         RaycastHit hit;
         if (Physics.Raycast(ray, out hit))
         {
-            if (hit.collider.CompareTag("Block"))
+            if (hit.collider.CompareTag("Player"))
             {
-                SelectPieceHitbox hitbox = hit.collider.GetComponent<SelectPieceHitbox>();
-                if (hitbox != null)
-                {
-                    var block = hitbox.Piece;
-                    if (block.IsBlocked)
-                    {
-                        return;
-                    }
-                    if (blockCharacterClick > 0)
-                    {
-                        //GameLog.Log($"[LevelController] Click block by - blockCharacterClick ({blockCharacterClick})");
-                        return;
-                    }
-                    // Check cooldown before processing any character click
-                    float timeSinceLastClick = Time.time - lastCharacterClickTime;
-                    if (timeSinceLastClick < clickCooldownDuration)
-                    {
-                        // Still in cooldown, ignore this click
-                        //GameLog.Log($"[LevelController] Click ignored - cooldown ({clickCooldownDuration:F2}s). Time remaining: {clickCooldownDuration - timeSinceLastClick:F2}s");
-                        return;
-                    }
-                    var cake = block.Slot.CakeLand;
-                    var pieces = cake.GetPieces(block);
-                    StartCoroutine(Ijump(pieces));
-                }
+                Plate hitbox = hit.collider.GetComponent<Plate>();
+                MoveToConveyor(hitbox);
             }
         }
     }
 
-    private IEnumerator Ijump(List<Piece> pieces)
+    private void MoveToConveyor(Plate plate)
     {
-        foreach(var  piece in pieces)
-        {
-            bool canAdd = unloader.AddBlock(piece);
-            if(canAdd == false)
-            {
-                yield break;
-            }
-            piece.MakeEmptySlot();
-            yield return new WaitForSeconds(0.25f);
-        }
+        conveyor.PlayMoveLine(plate);
+        plate.Selected(1, () => {
+            conveyor.StopMoveLine();
+        });
     }
 
 }

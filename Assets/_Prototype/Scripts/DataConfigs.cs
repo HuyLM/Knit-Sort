@@ -41,4 +41,5 @@ public class ColorConfig
     public Material material;
     public Material blockedMat;
     public Color BaseColor;
+    public Gradient Gradient;
 }
