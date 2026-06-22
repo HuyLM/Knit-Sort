@@ -1,10 +1,11 @@
+using Dreamteck;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-public class GameManager : MonoBehaviour
+public class GameManager : Singleton<GameManager>
 {
     public Camera mainCamera;
     [SerializeField] private float clickCooldownDuration = 0.5f;
@@ -46,7 +47,7 @@ public class GameManager : MonoBehaviour
 
         if (raycasters.Count == 0)
         {
-            raycasters.AddRange(FindObjectsOfType<GraphicRaycaster>());
+            raycasters.AddRange(GameObject.FindObjectsOfType<GraphicRaycaster>());
         }
         foreach (var raycaster in raycasters)
         {
@@ -137,12 +138,27 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    private void MoveToConveyor(Plate plate)
+private void MoveToConveyor(Plate plate)
     {
+        if (conveyor._pendingPlate != null)
+        {
+            return;
+        }
+        if (!plate.Selected())
+        {
+            return;
+        }
+
         conveyor.PlayMoveLine(plate);
-        plate.Selected(1, () => {
-            conveyor.StopMoveLine();
-        });
+        conveyor.RequestAddYarn(plate);
+
+        
+    }
+
+    public void EndConveyor()
+    {
+        conveyor.EndAddYarn();
+        conveyor.StopMoveLine();
     }
 
 }

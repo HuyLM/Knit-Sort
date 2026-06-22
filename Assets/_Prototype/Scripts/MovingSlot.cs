@@ -7,6 +7,10 @@ public class MovingSlot : MonoBehaviour
     public SplineFollower Follower;
     public float Speed = 1f;
     public Transform Container;
+    public Transform OutPos;
+
+
+    public Renderer _ren;
 
     [System.Serializable]
     public class SlotPassEvent : UnityEvent<MovingSlot, int> { }
@@ -17,6 +21,7 @@ public class MovingSlot : MonoBehaviour
 
     private double[] _slotPercents;
     private double _prevPercent;
+    public GameColor Color;
 
     public void RegisterSlotTriggers(double[] slotPercents)
     {
@@ -60,26 +65,31 @@ public class MovingSlot : MonoBehaviour
     void Start()
     {
         Follower.followSpeed = Speed;
+        _ren.gameObject.SetActive(false);
     }
 
     public bool IsEmpty()
     {
+        return _ren.gameObject.activeSelf == false;
         return Block == null;
     }
 
     public void MakeEmpty()
     {
         Block = null;
-        Unloader.ontextupdate.Invoke();
+        _ren.gameObject.SetActive(false);
     }
 
     public void AddBlock(Piece block)
     {
-        Block = block;
-        block.transform.SetParent(Container, false);
-        block.transform.localPosition = Vector3.zero;
-        block.transform.localRotation = Quaternion.identity;
-        Unloader.ontextupdate.Invoke();
+  
+    }
+
+    public void Add(GameColor color)
+    {
+        Color = color;
+        _ren.gameObject.SetActive(true);
+        _ren.sharedMaterial = DataConfigs.instance.GetColorConfig(color).material;
     }
 
 

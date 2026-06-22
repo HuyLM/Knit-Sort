@@ -20,6 +20,18 @@ public class Conveyor : MonoBehaviour
     public Transform Guide;
     public YarnMoveAnimation yarnMoveLine;
 
+    [Header("Slot -> Hole Yarn Pool")]
+    public YarnMoveAnimation yarnMoveLinePrefab; // prefab để Instantiate cho pool khi hết hàng có sẵn
+    public float slotToHoleDuration = 0.1f;      // thời gian Play trước khi gọi Stop cho hiệu ứng slot -> hole
+    private readonly List<YarnMoveAnimation> _yarnPool = new List<YarnMoveAnimation>();
+
+    [Header("Add Yarn")]
+    public GameObject PiecePrefab; // Prefab Piece (lử) để Instantiate khi thêm len mới
+
+    private int _guideSegmentIndex = -1;     // Index segment có IsGuide = true (vị trí 1)
+    public Plate _pendingPlate;              // Plate đang chờ được add vào conveyor
+
+
     private void Start()
     {
         StartCoroutine(SpawnMovingSlots());
@@ -33,7 +45,7 @@ public class Conveyor : MonoBehaviour
         if (length <= 0f) yield break;
 
         int segmentCount = Mathf.Max(1, Mathf.RoundToInt(length / desiredSpacing));
-        float actualSpacing = length / segmentCount;
+                float actualSpacing = length / segmentCount;
 
         int dotCount = isLooped ? segmentCount : (includeEndpoints ? segmentCount + 1 : segmentCount);
 
@@ -46,7 +58,19 @@ public class Conveyor : MonoBehaviour
         {
             SplineSample sampleP = splineComputer.Project(Segments[i].transform.position);
             _slotPercents[i] = sampleP.percent;
+                }
+
+        // Xác định segment là Guide (vị trí 1 - nơi add len mới)
+        _guideSegmentIndex = -1;
+        for (int i = 0; i < count; i++)
+        {
+            if (Segments[i].IsGuide)
+            {
+                _guideSegmentIndex = i;
+                break;
+            }
         }
+
 
         List<double> percents = new();
 
@@ -111,28 +135,35 @@ public class Conveyor : MonoBehaviour
         follower.SetPercent(percent);
     }
 
-    private void OnPassSegmentTrigger(MovingSlot movingSlot, int index)
+private void OnPassSegmentTrigger(MovingSlot movingSlot, int index)
     {
         var segment = Segments[index];
 
         if (movingSlot.IsEmpty())
         {
-            if(segment.Unloader != null)
+            if (segment.Unloader != null)
             {
                 segment.Unloader.RemoveBlock(movingSlot);
+            }
+
+            // Vị trí 1: segment này là Guide và đang có yêu cầu add len mới.
+            // Nếu slot đang đầy (không trống) thì bỏ qua, chờ slot rỗng tiếp theo.
+            if (segment.IsGuide && _pendingPlate != null && _pendingPlate._remainingLevels > 0)
+            {
+                SpawnPieceIntoSlot(movingSlot, _pendingPlate);
             }
         }
         else
         {
-            Piece block = movingSlot.Block;
-
-            var container = segment.GetContainer(block.Color);
-            if (container == null)
+            var hole = segment.GetContainer(movingSlot.Color);
+            if (hole == null)
             {
                 return;
             }
+            hole.Add();
             movingSlot.MakeEmpty();
-            block.JumpToContainer(container);
+            // spawn a yarnMoveLine để play phase 2: từ MovingSlot (A) -> hole.inPos (B)
+            PlaySlotToHoleYarn(movingSlot.OutPos, hole.inPos, movingSlot.Color);
         }
     }
 
@@ -141,16 +172,77 @@ public class Conveyor : MonoBehaviour
         return _slots.Count(slot => slot.IsEmpty() == false);
     }
 
-    public void PlayMoveLine(Plate plate)
+public void PlayMoveLine(Plate plate)
     {
-        Vector3 start = plate.Out.position;
-        Vector3 end = Guide.position;
-
-        yarnMoveLine.PlayYarnMove(start, end, 0.25f, plate.Color);
+        yarnMoveLine.PlayYarnMove(plate.Out, Guide, 0.25f, plate.Color);
     }
 
     public void StopMoveLine()
     {
         yarnMoveLine.StopYarnMove(0.25f);
     }
+    /// <summary>
+    /// Gọi khi người chơi chọn Plate để thêm len mới vào băng chuyền.
+    /// Len sẽ được gắn vào slot rỗng đầu tiên đi qua vị trí Guide (vị trí 1).
+    /// </summary>
+public void RequestAddYarn(Plate plate)
+    {
+        _pendingPlate = plate;
+    }
+
+public void EndAddYarn()
+    {
+        _pendingPlate = null;
+    }
+
+    /// <summary>
+    /// Tạo mới 1 Piece (lử) từ prefab, lấy màu từ Plate, rồi gắn vào MovingSlot.
+    /// </summary>
+private void SpawnPieceIntoSlot(MovingSlot slot, Plate plate)
+    {
+        slot.Add(plate.Color);
+        plate.ConsumeLevel();
+    }
+
+    /// <summary>
+    /// Lấy 1 YarnMoveAnimation rảnh từ pool (IsPlaying == false). Nếu không có con nào rảnh,
+    /// Instantiate thêm 1 con mới từ yarnMoveLinePrefab và thêm vào pool.
+    /// </summary>
+    private YarnMoveAnimation GetPooledYarnLine()
+    {
+        for (int i = 0; i < _yarnPool.Count; i++)
+        {
+            if (_yarnPool[i] != null && !_yarnPool[i].IsPlaying)
+            {
+                return _yarnPool[i];
+            }
+        }
+
+        if (yarnMoveLinePrefab == null) return null;
+
+        YarnMoveAnimation newLine = Instantiate(yarnMoveLinePrefab, transform);
+        _yarnPool.Add(newLine);
+        return newLine;
+    }
+
+    /// <summary>
+    /// Phát hiệu ứng sợi len bay từ "from" (vị trí MovingSlot) tới "to" (Hole.inPos),
+    /// dùng 1 instance lấy từ pool, tự Stop sau slotToHoleDuration giây.
+    /// </summary>
+    private void PlaySlotToHoleYarn(Transform from, Transform to, GameColor color)
+    {
+        YarnMoveAnimation line = GetPooledYarnLine();
+        if (line == null) return;
+
+        line.PlayYarnMove(from, to, slotToHoleDuration, color);
+        StartCoroutine(StopYarnAfterDelay(line, slotToHoleDuration));
+    }
+
+    private IEnumerator StopYarnAfterDelay(YarnMoveAnimation line, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        line.StopYarnMove(slotToHoleDuration);
+    }
+
+
 }

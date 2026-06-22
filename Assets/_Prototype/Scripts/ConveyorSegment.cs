@@ -4,17 +4,24 @@ using UnityEngine;
 
 public class ConveyorSegment : MonoBehaviour
 {
-    public CakeLand[] Containers;
+    public Hole[] Holes;
+    public bool IsGuide; // Vị trí thêm len mới vào băng chuyền (vị trí 1)
     public Unloader Unloader; 
     public SplineComputer spline;
 
-    public CakeLand GetContainer(GameColor color)
+
+    public Hole GetContainer(GameColor color)
     {
-        for (int i = 0; i < Containers.Length; i++)
+        for (int i = 0; i < Holes.Length; i++)
         {
-            if (Containers[i].IsBlocked == false && Containers[i].Color == color && Containers[i].IsFull == false)
+            var holeData = Holes[i].CurData();
+            if(holeData == null)
             {
-                return Containers[i];
+                continue;
+            }
+            if (holeData.Color == color && holeData.Number > 0)
+            {
+                return Holes[i];
             }
         }
         return null;
