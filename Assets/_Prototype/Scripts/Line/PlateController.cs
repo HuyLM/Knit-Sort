@@ -3,39 +3,42 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Quản lý hàng Plate hiển thị cho người chơi chọn.
-/// Tối đa <see cref="max"/> Plate được hiển thị cùng lúc, xếp ngang theo trục X
-/// bắt đầu từ <see cref="startPoint"/>, cách nhau <see cref="spacing"/>.
-/// Khi 1 Plate trong hàng hết level (OnLevelEmpty), nó sẽ:
-///   1) Chạy animation scale nhỏ (shrinkScale) rối ẩn đi.
-///   2) Các Plate bên phải dịch trái lấp chỗ trống.
-///   3) Lấy 1 Plate mới từ hàng chờ (queue) trượt vào vị trí cuối cùng.
+/// Quản lý băng trôi các Plate hiển thị cho người chơi chọn.
+///
+/// - Các Plate đang ACTIVE trôi liên tục từ right sang left (driftSpeed).
+/// - Mỗi Plate (trừ Plate đầu hàng) liên tục Lerp khoảng cách hiện tại với Plate đỬng trước
+///   nó về đúng "spacing" (cố định) — khi có chỗ trống (do Plate khác bị ẩn) các Plate
+///   phía sau sẽ từ từ ép lại gần cho đủ spacing.
+/// - Khi 1 Plate active chạm tới left: nếu khoảng cách với Plate đỬng trước nó CHƯ A đạt
+///   đủ spacing thì bị ẩn đi (không Destroy), chuyển vào hàng chờ (waiting queue, FIFO).
+/// - Plate đầu hàng chờ được spawn lại tại right ngay khi Plate active gần right nhất
+///   hiện tại đã cách right đủ spacing (tức đã có chỗ trống).
 /// </summary>
 public class PlateController : MonoBehaviour
 {
     [Header("Dữ liệu")]
     public List<Plate> plates;
 
-    [Header("Vị trí hàng ngang (trục X)")]
-    public int max = 4;
-    [SerializeField] private Transform startPoint;
-    [SerializeField] private float spacing = 1.5f;
+    [Header("Biên trôi (cố định)")]
+    [SerializeField] private Transform right;
+    [SerializeField] private Transform left;
 
-    [Header("Animation")]
+    [Header("Khoảng cách & tốc độ")]
+    [SerializeField] private float spacing = 1.5f;     // khoảng cách yêu cầu giởa 2 Plate liền kề (cố định)
+    [SerializeField] private float driftSpeed = 1f;    // units/giây, trôi từ right sang left
+    [SerializeField] private float closeGapSpeed = 4f; // tốc độ Lerp ép khoảng cách về đúng spacing
+
+    [Header("Animation khi hết level")]
     [SerializeField] private float shrinkScale = 0.25f;
     [SerializeField] private float shrinkDuration = 0.2f;
-    [SerializeField] private float slideDuration = 0.2f;
-    [SerializeField] private AnimationCurve slideEase = AnimationCurve.EaseInOut(0, 0, 1, 1);
 
-    // Các Plate đang hiện diện trong hàng (tối đa `max` phần tử), theo đúng thứ tự vị trí 0..max-1
+    // Hàng Plate đang ACTIVE (trôi trên màn hình), theo đúng thứ tự 0 = gần right nhất
     private readonly List<Plate> _activeRow = new List<Plate>();
 
-    // Các Plate chưa được đưa vào hàng, chờ theo đúng thứ tự trong `plates`
+    // Hàng chờ (FIFO) các Plate đang bị ẩn, chờ đủ chỗ để spawn lại ở right
     private readonly Queue<Plate> _waitingQueue = new Queue<Plate>();
 
-    private bool _isShifting; // true trong lúc đang chạy animation xóa + đẩy hàng, tránh chồng chéo
-
-    private void Awake()
+private void Awake()
     {
         _activeRow.Clear();
         _waitingQueue.Clear();
@@ -45,115 +48,168 @@ public class PlateController : MonoBehaviour
             Plate plate = plates[i];
             if (plate == null) continue;
 
-            if (_activeRow.Count < max)
+            plate.OnLevelEmpty -= HandlePlateLevelEmpty;
+            plate.OnLevelEmpty += HandlePlateLevelEmpty;
+
+            if (i == 0)
             {
+                // Chỉ Plate đầu tiên active ngay lúc bắt đầu, tại đúng vị trí right.
+                plate.gameObject.SetActive(true);
+                plate.Clickable = true;
+                plate.transform.position = new Vector3(right.position.x, right.position.y, right.position.z);
                 _activeRow.Add(plate);
             }
             else
             {
+                // Các Plate còn lại đều vào hàng chờ, sẽ tữ spawn dần theo điều kiện khoảng cách.
+                plate.gameObject.SetActive(false);
+                plate.Clickable = false;
                 _waitingQueue.Enqueue(plate);
             }
         }
+    }
 
-        // Đặt đúng vị trí cho `max` Plate đầu tiên, kích hoạt và cho phép click
+private void Update()
+    {
+        if (right == null || left == null) return;
+        if (_activeRow.Count == 0)
+        {
+            TrySpawnFromQueue();
+            return;
+        }
+
+        float dt = Time.deltaTime;
+        float xLeft = left.position.x;
+        float y = right.position.y;
+        float z = right.position.z;
+
+        // 1) Trôi đều sang trái
         for (int i = 0; i < _activeRow.Count; i++)
         {
-            SetupActivePlate(_activeRow[i], i);
+            Plate plate = _activeRow[i];
+            if (plate == null) continue;
+
+            Vector3 pos = plate.transform.position;
+            pos.x -= driftSpeed * dt;
+            pos.y = y;
+            pos.z = z;
+            plate.transform.position = pos;
         }
 
-        // Các Plate còn lại trong queue: giợ nguyên vị trí hiện có trong scene, chỉ tắt đi
-        foreach (var plate in _waitingQueue)
+        // 2) Sắp xếp theo vị trí X THỌC TẠ (giảm dần: gần right -> gần left), KHÔNG dửa vào
+        //    thứ tự trong _activeRow (thứ tự đó bị xáo sau khi ẩn/spawn nhiều lần, không đáng tin).
+        var ordered = new List<Plate>(_activeRow);
+        ordered.Sort((a, b) => b.transform.position.x.CompareTo(a.transform.position.x));
+
+        // 3) Mỗi Plate (trừ Plate đầu hàng — gần right nhất trong thứ tự đã sort) Lerp khoảng
+        //    cách với Plate liền trước nó (theo thứ tự sort) về đúng spacing. Việc này khiến
+        //    hàng tự ép lại sau khi 1 Plate ở giởa bị ẩn, lấp khoảng trống mềm mại.
+        for (int i = 1; i < ordered.Count; i++)
         {
-            plate.gameObject.SetActive(false);
+            Plate plate = ordered[i];
+            Plate prev = ordered[i - 1];
+            if (plate == null || prev == null) continue;
+
+            float desiredX = prev.transform.position.x - spacing;
+            float currentX = plate.transform.position.x;
+
+            if (currentX > desiredX)
+            {
+                float newX = Mathf.MoveTowards(currentX, desiredX, closeGapSpeed * dt);
+                Vector3 pos = plate.transform.position;
+                pos.x = newX;
+                plate.transform.position = pos;
+            }
+        }
+
+        // 4) BẤT KỲ Plate nào đã chạm left đều bị ẩn ngay và đưa vào hàng chờ — không cần
+        //    kiểm tra khoảng cách gì cả (điều kiện khoảng cách chỉ áp dụng cho lúc SPAWN ở right).
+        for (int i = ordered.Count - 1; i >= 0; i--)
+        {
+            Plate plate = ordered[i];
+            if (plate == null) continue;
+            if (plate.transform.position.x > xLeft) continue; // chưa chạm left
+
+            HidePlate(plate);
+            ordered.RemoveAt(i); // tránh xét lại Plate đã ẩn trong cùng frame
+        }
+
+        // 5) Nếu có Plate đang chờ, kiểm tra điều kiện để spawn lại ở right.
+        TrySpawnFromQueue();
+    }
+
+    private void TrySpawnFromQueue()
+    {
+        if (_waitingQueue.Count == 0) return;
+        if (right == null) return;
+
+        bool canSpawn;
+        if (_activeRow.Count == 0)
+        {
+            canSpawn = true;
+        }
+        else
+        {
+            // Plate gần right nhất trong thời điểm hiện tại (X lớn nhất)
+            float maxX = float.NegativeInfinity;
+            for (int i = 0; i < _activeRow.Count; i++)
+            {
+                if (_activeRow[i] == null) continue;
+                float x = _activeRow[i].transform.position.x;
+                if (x > maxX) maxX = x;
+            }
+
+            float distFromRight = right.position.x - maxX;
+            canSpawn = distFromRight >= spacing - 0.001f;
+        }
+
+        if (canSpawn)
+        {
+            Plate newPlate = _waitingQueue.Dequeue();
+            SpawnAtRight(newPlate);
         }
     }
 
-    /// <summary>
-    /// Đặt 1 Plate vào đúng vị trí index trong hàng (0..max-1), kích hoạt,
-    /// cho phép click, và subscribe event OnLevelEmpty của nó.
-    /// </summary>
-    private void SetupActivePlate(Plate plate, int index)
+    private void SpawnAtRight(Plate plate)
     {
+        Vector3 pos = new Vector3(right.position.x, right.position.y, right.position.z);
+        plate.transform.position = pos;
+        plate.transform.localScale = Vector3.one;
         plate.gameObject.SetActive(true);
-        plate.transform.position = GetSlotPosition(index);
         plate.Clickable = true;
 
-        plate.OnLevelEmpty -= HandlePlateLevelEmpty; // tránh subscribe trùng lặp
-        plate.OnLevelEmpty += HandlePlateLevelEmpty;
+        _activeRow.Add(plate);
     }
 
-private Vector3 GetSlotPosition(int index)
+    private void HidePlate(Plate plate)
     {
-        float y = startPoint != null ? startPoint.position.y : 0f;
-        float z = startPoint != null ? startPoint.position.z : 0f;
-
-        // Đối xừng qua X = 0 (gốc world): slot giởa khoảng (max-1)/2.0
-        float x = (index - (max - 1) / 2f) * spacing;
-
-        return new Vector3(x, y, z);
+        _activeRow.Remove(plate);
+        plate.Clickable = false;
+        plate.gameObject.SetActive(false);
+        _waitingQueue.Enqueue(plate);
     }
 
     private void HandlePlateLevelEmpty(Plate plate)
     {
-        if (_isShifting) return; // an toàn: tránh trigger trùng trong cùng 1 frame
-        StartCoroutine(RemoveAndShift(plate));
+        StartCoroutine(RemovePlate(plate));
     }
 
-    private IEnumerator RemoveAndShift(Plate plate)
+    private IEnumerator RemovePlate(Plate plate)
     {
-        _isShifting = true;
-
         plate.OnLevelEmpty -= HandlePlateLevelEmpty;
 
-        int removedIndex = _activeRow.IndexOf(plate);
+        // Xóa khỏi hàng active (nếu đang active) — tạo chỗ trống ngay để các Plate sau ép lại.
+        _activeRow.Remove(plate);
 
-        // --- Pha 1: scale nhỏ Plate vừa hết level ---
         yield return ScalePlate(plate.transform, Vector3.one, Vector3.one * shrinkScale, shrinkDuration);
 
         plate.gameObject.SetActive(false);
-        plate.transform.localScale = Vector3.one; // trả về scale gốc để lần sau dùng lại không bị nhỏ
+        plate.transform.localScale = Vector3.one;
 
         if (GameManager.instance != null)
         {
             GameManager.instance.EndConveyor();
         }
-
-        if (removedIndex >= 0)
-        {
-            _activeRow.RemoveAt(removedIndex);
-        }
-
-        // --- Pha 2: lấy 1 Plate mới từ queue (nếu còn), đặt ở vị trí ngay sau cùng hiện tại ---
-        Plate newPlate = null;
-        if (_waitingQueue.Count > 0)
-        {
-            newPlate = _waitingQueue.Dequeue();
-            newPlate.gameObject.SetActive(true);
-            newPlate.Clickable = false; // chỉ cho click sau khi trượt vào đúng vị trí
-            // Đặt Plate mới ở vị trí ngay phía phải của hàng hiện tại (slot thừa, tạm thời)
-            newPlate.transform.position = GetSlotPosition(_activeRow.Count + 1);
-            _activeRow.Add(newPlate);
-        }
-
-        // --- Pha 3: đẩy toàn bộ Plate còn lại (và Plate mới, nếu có) trượt về đúng vị trí 0..n-1 ---
-        var moveTargets = new Vector3[_activeRow.Count];
-        var moveStarts = new Vector3[_activeRow.Count];
-        for (int i = 0; i < _activeRow.Count; i++)
-        {
-            moveStarts[i] = _activeRow[i].transform.position;
-            moveTargets[i] = GetSlotPosition(i);
-        }
-
-        yield return SlideAll(_activeRow, moveStarts, moveTargets, slideDuration);
-
-        if (newPlate != null)
-        {
-            newPlate.Clickable = true;
-            newPlate.OnLevelEmpty -= HandlePlateLevelEmpty;
-            newPlate.OnLevelEmpty += HandlePlateLevelEmpty;
-        }
-
-        _isShifting = false;
     }
 
     private IEnumerator ScalePlate(Transform target, Vector3 from, Vector3 to, float duration)
@@ -168,28 +224,7 @@ private Vector3 GetSlotPosition(int index)
         }
         target.localScale = to;
     }
-
-    private IEnumerator SlideAll(List<Plate> targets, Vector3[] starts, Vector3[] ends, float duration)
-    {
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float rawT = Mathf.Clamp01(elapsed / duration);
-            float t = slideEase.Evaluate(rawT);
-
-            for (int i = 0; i < targets.Count; i++)
-            {
-                if (targets[i] == null) continue;
-                targets[i].transform.position = Vector3.Lerp(starts[i], ends[i], t);
-            }
-            yield return null;
-        }
-
-        for (int i = 0; i < targets.Count; i++)
-        {
-            if (targets[i] == null) continue;
-            targets[i].transform.position = ends[i];
-        }
-    }
 }
+
+
+
