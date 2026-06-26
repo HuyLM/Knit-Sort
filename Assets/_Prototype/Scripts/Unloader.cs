@@ -15,7 +15,7 @@ public class Unloader : MonoBehaviour
 
     public int MaxQueueSize;
 
-    public List<Piece> blocks = new();
+    public List<Plate> blocks = new();
 
     public static Action ontextupdate;
 
@@ -40,13 +40,14 @@ public class Unloader : MonoBehaviour
         }
     }
 
-    public bool AddBlock(Piece block)
+    public bool AddBlock(Plate block)
     {
         if(blocks.Count + Conveyor.FilledMovingSlotCount() >= Conveyor.Segments.Length)
         {
             return false;
         }
         blocks.Add(block);
+        block.Clicked = true;
         block.transform.parent = queue;
         block.transform.DOLocalRotateQuaternion(Quaternion.identity, 0.25f);
         UpdateVisual();
@@ -62,7 +63,7 @@ public class Unloader : MonoBehaviour
         var block = blocks[0];
         blocks.RemoveAt(0);
         UpdateVisual();
-        movingSlot.AddBlock(block);
+        movingSlot.AddPlate(block);
     }
 
     private Vector3 CalculatePositionForIndex(int index)

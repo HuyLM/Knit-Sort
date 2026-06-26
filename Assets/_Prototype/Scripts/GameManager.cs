@@ -133,32 +133,15 @@ public class GameManager : Singleton<GameManager>
             if (hit.collider.CompareTag("Player"))
             {
                 Plate hitbox = hit.collider.GetComponent<Plate>();
-                MoveToConveyor(hitbox);
+                if(hitbox.Clicked)
+                {
+                    return;
+                }
+                hitbox.Selected();
+                unloader.AddBlock(hitbox);
             }
         }
     }
 
-private void MoveToConveyor(Plate plate)
-    {
-        if (conveyor._pendingPlate != null)
-        {
-            return;
-        }
-        if (!plate.Selected())
-        {
-            return;
-        }
-
-        conveyor.PlayMoveLine(plate);
-        conveyor.RequestAddYarn(plate);
-
-        
-    }
-
-    public void EndConveyor()
-    {
-        conveyor.EndAddYarn();
-        conveyor.StopMoveLine();
-    }
 
 }

@@ -4,24 +4,23 @@ using UnityEngine;
 
 public class ConveyorSegment : MonoBehaviour
 {
-    public Hole[] Holes;
+    public Car[] Cars;
     public bool IsGuide; // Vị trí thêm len mới vào băng chuyền (vị trí 1)
     public Unloader Unloader; 
     public SplineComputer spline;
 
 
-    public Hole GetContainer(GameColor color)
+    public Car GetContainer(GameColor color)
     {
-        for (int i = 0; i < Holes.Length; i++)
+        for (int i = 0; i < Cars.Length; i++)
         {
-            var holeData = Holes[i].CurData();
-            if(holeData == null)
+            if (Cars[i] == null)
             {
                 continue;
             }
-            if (holeData.Color == color && holeData.Number > 0)
+            if (Cars[i].Color == color && Cars[i].Ready)
             {
-                return Holes[i];
+                return Cars[i];
             }
         }
         return null;

@@ -10,14 +10,13 @@ public class MovingSlot : MonoBehaviour
     public Transform OutPos;
 
 
-    public Renderer _ren;
 
     [System.Serializable]
     public class SlotPassEvent : UnityEvent<MovingSlot, int> { }
 
     public SlotPassEvent OnPassSlot;
 
-    public Piece Block;
+    public Plate Plate;
 
     private double[] _slotPercents;
     private double _prevPercent;
@@ -65,32 +64,25 @@ public class MovingSlot : MonoBehaviour
     void Start()
     {
         Follower.followSpeed = Speed;
-        _ren.gameObject.SetActive(false);
     }
 
     public bool IsEmpty()
     {
-        return _ren.gameObject.activeSelf == false;
-        return Block == null;
+        return Plate == null;
     }
 
     public void MakeEmpty()
     {
-        Block = null;
-        _ren.gameObject.SetActive(false);
+        Plate = null;
     }
 
-    public void AddBlock(Piece block)
+    public void AddPlate(Plate plate)
     {
-  
+        this.Plate = plate;
+        plate.transform.SetParent(Container, false);
+        plate.transform.localPosition = Vector3.zero;
+        plate.transform.localRotation = Quaternion.identity;
+        plate.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+        Unloader.ontextupdate.Invoke();
     }
-
-    public void Add(GameColor color)
-    {
-        Color = color;
-        _ren.gameObject.SetActive(true);
-        _ren.sharedMaterial = DataConfigs.instance.GetColorConfig(color).material;
-    }
-
-
 }

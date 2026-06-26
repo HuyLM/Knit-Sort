@@ -42,4 +42,5 @@ public class ColorConfig
     public Material blockedMat;
     public Color BaseColor;
     public Gradient Gradient;
+    public Material carMat;
 }
